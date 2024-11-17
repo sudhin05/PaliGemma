@@ -28,6 +28,59 @@ class SiglipVisionConfig:
     self.attention_dropout = attention_dropout
     self.num_image_token = num_image_token
 
+class SiglipVisionEmbeddings(nn.Module):
+  def __init__(self,config: SiglipVisionConfig):
+    self.config = config
+    self.embed_dim = config.hidden_size
+    self.image_size - config.image_size
+    self.patch_size = config.patch_size
+    
+    #Here padding = valid means no padding is added
+    self.patch_embedding = nn.Conv2d(
+      in_channels = config.num_channels,
+      out_channels = self.embed_dim,
+      kernel_size = self.patch_size,
+      stride = self.patch_size,
+      padding = "valid"
+    )
+
+    self.num_patches = (self.image_size // self.patch_size) ** 2
+    #In a generic ViT we would require 1 more position to account for the class token
+    self.num_positons = self.num_patches
+    #In the Vanilla transformer we forced the model to learn the sinusoidal position representations
+    #In this implmentation we are making the model learn the position representation on its own over time
+    self.position_embedding = nn.Embedding(self.num_positons,self.embed_dim)
+    """
+    register_buffer(name, tensor, persistent=True)
+      Add a buffer to the module.
+      This is typically used to register a buffer that should not to be considered a model parameter. 
+      For example, BatchNorms running_mean is not a parameter, but is part of the modules state.
+        Buffers, by default, are persistent and will be saved alongside parameters. 
+        This behavior can be changed by setting persistent to False. 
+        The only difference between a persistent buffer and a non-persistent buffer is that the latter will not be a part of this modules state_dict.
+      Buffers can be accessed as attributes using given names.
+    """
+    self.register_buffer("position_ids",torch.arange(self.num_positions).expand((1,-1)),persistent=False)
+  
+  def forward(self,img: torch.FloatTensor) -> torch.Tensor:
+    batch_size,channel,height,width = img.shape
+    #Now we must generate embeds using the Convolution operation
+    # [ Batch_size,Embed_dim,num_patches_h,num_patches_w]
+    patch_embeds = self.patch_embedding(img)
+    # Now we must flatten the embeddings
+    # [Batch_size,Embed_dim,num_patches_h*num_patches_w] OR
+    # [Batch_size,Embed_dim,num_patches] where num_patches = num_patches_h * num_patches_w
+    embeddings = patch_embeds.flatten(2)
+    #Taking transpose
+    # [Batch_size,num_patches,Embed_dim]
+    embeddings = torch.permute(0,2,1)
+    #Adding positional embeddings
+    # [Batch_size,num_patches,Embed_dim] here num_patches = num_positions
+    embeddings = embeddings + self.position_embedding(self.position_ids)
+
+    return embeddings
+
+
 class SiglipVisionTransformer(nn.Module):
   def __init__(self,config: SiglipVisionConfig):
     super(SiglipVisionTransformer, self).__init__()
